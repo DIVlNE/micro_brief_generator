@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Micro-Brief Generator</title>
+    <!-- Load Inter font from Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0d1117; /* Dark GitHub-like background */
+            color: #e5e7eb;
+            min-height: 100vh;
+        }
+        .container-content {
+            max-width: 900px;
+        }
+        /* Custom scrollbar for aesthetics */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1f2937;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #4f46e5;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body class="p-4 sm:p-8">
+
+    <div class="container-content mx-auto">
+        <header class="text-center mb-12">
+            <h1 class="text-4xl sm:text-5xl font-extrabold text-[#4f46e5] mb-2">Micro-Brief Generator</h1>
+            <p class="text-xl text-gray-400">Instantly distill large blocks of text into structured, actionable summaries using the Gemini API.</p>
+        </header>
+
+        <!-- Input Area -->
+        <section class="mb-10 p-6 bg-[#161b22] rounded-xl shadow-2xl border border-gray-700">
+            <label for="sourceText" class="block text-lg font-semibold mb-3 text-white">Paste Article or Text Below:</label>
+            <textarea id="sourceText" rows="10" placeholder="Paste your lengthy article, report section, or meeting notes here..." 
+                      class="w-full p-4 text-sm bg-[#0d1117] border border-gray-600 rounded-lg focus:ring-[#4f46e5] focus:border-[#4f46e5] text-gray-200 resize-none transition duration-200"></textarea>
+            
+            <button id="generateButton" 
+                    class="w-full mt-4 bg-[#4f46e5] hover:bg-indigo-600 text-white font-bold py-3 px-4 rounded-lg transition duration-300 transform active:scale-95 shadow-lg shadow-[#4f46e5]/40 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center">
+                <span id="buttonText">Generate Micro-Brief</span>
+                <svg id="loadingSpinner" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+            </button>
+            <div id="statusMessage" class="mt-3 text-center text-sm text-yellow-500 hidden"></div>
+        </section>
+
+        <!-- Output Area -->
+        <section id="outputSection" class="hidden">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-3xl font-bold text-white">Generated Brief</h2>
+                <button id="copyButton" onclick="copyToClipboard()" class="bg-gray-700 hover:bg-gray-600 text-white text-sm font-semibold py-2 px-4 rounded-lg transition duration-300 flex items-center">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7v4a1 1 0 001 1h4m-4 0v4m-4-4h.01M16 19v-2a1 1 0 00-1-1h-4m-4 0h-.01M7 5h10a2 2 0 012 2v10a2 2 0 01-2 2H7a2 2 0 01-2-2V7a2 2 0 012-2z"></path></svg>
+                    <span id="copyButtonText">Copy Brief</span>
+                </button>
+            </div>
+            
+            <div id="briefResult" class="space-y-6">
+                <!-- Output will be injected here -->
+            </div>
+            <textarea id="hiddenContent" class="absolute left-[-9999px]"></textarea>
+        </section>
+
+        <!-- Modal Placeholder for custom alerts (since alert() is forbidden) -->
+        <div id="alertModal" class="hidden fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
+            <div class="bg-[#161b22] p-6 rounded-lg shadow-xl max-w-sm w-full border border-red-500">
+                <h3 class="text-xl font-bold text-red-400 mb-4">Error</h3>
+                <p id="alertMessage" class="text-gray-300 mb-6"></p>
+                <button onclick="document.getElementById('alertModal').classList.add('hidden')" 
+                        class="w-full bg-red-600 hover:bg-red-700 text-white font-semibold py-2 rounded-lg transition duration-300">
+                    Close
+                </button>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // Set the API Key (Required for Canvas runtime)
+        const apiKey = ""; 
+        const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+
+        const generateButton = document.getElementById('generateButton');
+        const buttonText = document.getElementById('buttonText');
+        const loadingSpinner = document.getElementById('loadingSpinner');
+        const sourceTextarea = document.getElementById('sourceText');
+        const statusMessage = document.getElementById('statusMessage');
+        const briefResult = document.getElementById('briefResult');
+        const outputSection = document.getElementById('outputSection');
+        const copyButtonText = document.getElementById('copyButtonText');
+        const hiddenContent = document.getElementById('hiddenContent');
+        
+        // Storage for the last generated JSON data
+        let lastGeneratedData = null;
+
+        // Custom Alert Function (Replaces alert())
+        function customAlert(message, isSuccess = false) {
+            const modal = document.getElementById('alertModal');
+            const title = modal.querySelector('h3');
+            const button = modal.querySelector('button');
+            
+            modal.classList.remove('hidden');
+            document.getElementById('alertMessage').textContent = message;
+
+            if (isSuccess) {
+                title.textContent = "Success!";
+                title.classList.remove('text-red-400');
+                title.classList.add('text-green-400');
+                button.classList.remove('bg-red-600', 'hover:bg-red-700');
+                button.classList.add('bg-green-600', 'hover:bg-green-700');
+            } else {
+                title.textContent = "Error";
+                title.classList.add('text-red-400');
+                title.classList.remove('text-green-400');
+                button.classList.add('bg-red-600', 'hover:bg-red-700');
+                button.classList.remove('bg-green-600', 'hover:bg-green-700');
+            }
+        }
+
+        // Function to handle exponential backoff for API retries
+        async function fetchWithRetry(url, payload, retries = 3) {
+            for (let i = 0; i < retries; i++) {
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (response.ok) {
+                        return response;
+                    } else if (response.status === 429 && i < retries - 1) {
+                        // Rate limit error (429) - wait and retry
+                        const delay = Math.pow(2, i) * 1000 + Math.random() * 1000;
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                    } else {
+                        throw new Error(`API Error: ${response.status} ${response.statusText}`);
+                    }
+                } catch (error) {
+                    if (i === retries - 1) {
+                        throw error; // Throw on final failed attempt
+                    }
+                    // Wait for timeout before next retry attempt
+                    const delay = Math.pow(2, i) * 1000 + Math.random() * 1000;
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
+            }
+            throw new Error("API request failed after multiple retries.");
+        }
+
+        async function generateBrief() {
+            const sourceText = sourceTextarea.value.trim();
+
+            if (sourceText.length < 50) {
+                customAlert("Please enter a longer piece of text (at least 50 characters) to generate a meaningful brief.");
+                return;
+            }
+
+            // UI state management
+            generateButton.disabled = true;
+            buttonText.textContent = 'Analyzing Text...';
+            loadingSpinner.classList.remove('hidden');
+            statusMessage.textContent = 'Sending request to Gemini API...';
+            statusMessage.classList.remove('hidden');
+            briefResult.innerHTML = '';
+            outputSection.classList.add('hidden');
+            lastGeneratedData = null; // Clear previous data
+
+            // Define the JSON structure we want the model to return
+            const responseSchema = {
+                type: "OBJECT",
+                properties: {
+                    "brief_sentence": { 
+                        type: "STRING", 
+                        description: "A single, concise, summary sentence of the entire article." 
+                    },
+                    "key_takeaways": { 
+                        type: "ARRAY", 
+                        description: "Three distinct, informative bullet points summarizing the main findings.",
+                        items: { type: "STRING" }
+                    },
+                    "action_item": { 
+                        type: "STRING", 
+                        description: "One clear, suggested action or next step based on the content." 
+                    }
+                },
+                required: ["brief_sentence", "key_takeaways", "action_item"]
+            };
+
+            const systemPrompt = `You are a world-class executive assistant. Your task is to process a long piece of text and extract the most critical information into a structured micro-brief. The output MUST strictly conform to the provided JSON schema. Do not include any preamble, apologies, or conversational text outside of the JSON block.`;
+            
+            const userQuery = `Analyze the following text and generate the structured micro-brief:\n\n---\n\n${sourceText}`;
+
+            const payload = {
+                contents: [{ parts: [{ text: userQuery }] }],
+                systemInstruction: { parts: [{ text: systemPrompt }] },
+                generationConfig: {
+                    responseMimeType: "application/json",
+                    responseSchema: responseSchema
+                }
+            };
+
+            try {
+                const response = await fetchWithRetry(API_URL, payload);
+                const result = await response.json();
+
+                if (!result.candidates || result.candidates.length === 0 || !result.candidates[0].content) {
+                    throw new Error("Gemini API returned an empty or invalid response.");
+                }
+
+                const jsonText = result.candidates[0].content.parts[0].text;
+                const parsedJson = JSON.parse(jsonText);
+                
+                lastGeneratedData = parsedJson;
+                renderResults(parsedJson);
+
+            } catch (error) {
+                console.error("Error generating brief:", error);
+                customAlert("Failed to process text. Please check the console for details or try again later.");
+            } finally {
+                // Reset UI state
+                generateButton.disabled = false;
+                buttonText.textContent = 'Generate Micro-Brief';
+                loadingSpinner.classList.add('hidden');
+                statusMessage.classList.add('hidden');
+            }
+        }
+
+        function renderResults(data) {
+            let html = '';
+
+            // 1. Brief Sentence
+            html += `
+                <div id="briefSentenceOutput" class="p-4 bg-gray-800 rounded-lg border-l-4 border-[#4f46e5] shadow-md">
+                    <p class="text-sm font-semibold text-[#4f46e5] mb-1">Micro Brief (Single Sentence)</p>
+                    <p class="text-xl font-bold text-white">${data.brief_sentence}</p>
+                </div>
+            `;
+
+            // 2. Key Takeaways
+            html += `
+                <div id="keyTakeawaysOutput" class="p-4 bg-[#1f2937] rounded-lg shadow-md">
+                    <p class="text-lg font-semibold text-white mb-3 flex items-center">
+                        <svg class="w-5 h-5 mr-2 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.001 12.001 0 002 15c0 5.424 3.313 9.876 8 10.975V22h4v3.975c4.687-1.099 8-5.551 8-10.975a12.001 12.001 0 00-2.382-6.96"></path></svg>
+                        Key Takeaways
+                    </p>
+                    <ul class="list-disc pl-5 space-y-2 text-gray-300">
+                        ${data.key_takeaways.map(t => `<li>${t}</li>`).join('')}
+                    </ul>
+                </div>
+            `;
+
+            // 3. Action Item
+            html += `
+                <div id="actionItemOutput" class="p-4 bg-[#1f2937] rounded-lg border-r-4 border-yellow-500 shadow-md">
+                    <p class="text-lg font-semibold text-white mb-2 flex items-center">
+                        <svg class="w-5 h-5 mr-2 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                        Suggested Action Item
+                    </p>
+                    <p class="text-gray-300">${data.action_item}</p>
+                </div>
+            `;
+
+            briefResult.innerHTML = html;
+            outputSection.classList.remove('hidden');
+        }
+        
+        // Function to copy formatted output to clipboard
+        function copyToClipboard() {
+            if (!lastGeneratedData) {
+                customAlert("No brief has been generated yet.", false);
+                return;
+            }
+
+            // Format the text nicely for a clipboard paste
+            const formattedText = `
+--- MICRO-BRIEF ---
+${lastGeneratedData.brief_sentence}
+
+--- KEY TAKEAWAYS ---
+${lastGeneratedData.key_takeaways.map((t, i) => `• ${t}`).join('\n')}
+
+--- ACTION ITEM ---
+${lastGeneratedData.action_item}
+            `.trim();
+
+            // Use the hidden textarea to execute the copy command
+            hiddenContent.value = formattedText;
+            hiddenContent.select();
+            
+            try {
+                document.execCommand('copy');
+                copyButtonText.textContent = 'Copied!';
+                setTimeout(() => { copyButtonText.textContent = 'Copy Brief'; }, 2000);
+            } catch (err) {
+                console.error('Could not copy text: ', err);
+                customAlert("Failed to copy to clipboard. Please select the text manually.", false);
+            }
+        }
+
+
+        // Attach event listener to the button
+        generateButton.addEventListener('click', generateBrief);
+
+    </script>
+
+</body>
+</html>
