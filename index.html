@@ -88,7 +88,7 @@
 
     <script>
         // Set the API Key (Required for Canvas runtime)
-        const apiKey = ""; 
+        const apiKey = "AIzaSyDOtXpZumrNrOXNQVHIFkWTyBi5oBBihsY"; 
         const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
 
         const generateButton = document.getElementById('generateButton');
@@ -145,6 +145,7 @@
                         const delay = Math.pow(2, i) * 1000 + Math.random() * 1000;
                         await new Promise(resolve => setTimeout(resolve, delay));
                     } else {
+                        // Throw other errors immediately
                         throw new Error(`API Error: ${response.status} ${response.statusText}`);
                     }
                 } catch (error) {
@@ -160,6 +161,12 @@
         }
 
         async function generateBrief() {
+            // Check if API key is set before proceeding
+            if (apiKey === "YOUR_GEMINI_API_KEY_HERE" || apiKey.length === 0) {
+                 customAlert("API Key is missing. Please edit the HTML file and replace 'YOUR_GEMINI_API_KEY_HERE' with your actual API key.");
+                 return;
+            }
+
             const sourceText = sourceTextarea.value.trim();
 
             if (sourceText.length < 50) {
@@ -212,6 +219,11 @@
             };
 
             try {
+                // Check if API key is set before making the call
+                if (apiKey === "YOUR_GEMINI_API_KEY_HERE" || apiKey.length === 0) {
+                    throw new Error("API Key is not set in the HTML file.");
+                }
+
                 const response = await fetchWithRetry(API_URL, payload);
                 const result = await response.json();
 
@@ -227,7 +239,18 @@
 
             } catch (error) {
                 console.error("Error generating brief:", error);
-                customAlert("Failed to process text. Please check the console for details or try again later.");
+                // Provide a slightly more informative error message to the user
+                let userMessage = "Failed to process text. The most common cause is an invalid or missing API Key. Please ensure your API key is correctly inserted in the HTML file.";
+                if (error.message.includes('API Error: 400')) {
+                    userMessage = "API Error: The request was bad. This usually means the API key is incorrect or the prompt formatting is wrong. Check the key first.";
+                } else if (error.message.includes('API Error: 429')) {
+                    userMessage = "Rate Limit Error: You've made too many requests too quickly. Please wait a moment and try again.";
+                } else if (error.message.includes('API Key is not set')) {
+                    userMessage = error.message;
+                }
+
+                customAlert(userMessage);
+
             } finally {
                 // Reset UI state
                 generateButton.disabled = false;
